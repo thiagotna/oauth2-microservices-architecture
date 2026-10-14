@@ -1,0 +1,178 @@
+services:
+  # =========================================================================
+  # 1. SERVIDOR DE AUTORIZAÇÃO (OAuth 2.0 / IdP) - Passos 1, 2, 3 e 5
+  # =========================================================================
+  auth-server:
+    build:
+      context: ./services/auth-server
+      dockerfile: Dockerfile
+    container_name: oauth2_auth_server
+    restart: unless-stopped
+    ports:
+      - "8001:8001" # Exposto ao Cliente/Usuário para os Passos 1 e 3 (/authorize e /token)
+    environment:
+      - ENVIRONMENT=development
+      - SERVICE_NAME=auth-server
+      - PORT=8001
+      - DATABASE_URL=postgresql+asyncpg://${AUTH_DB_USER:-auth_admin}:${AUTH_DB_PASSWORD:-auth_secret_pwd}@auth-db:5432/${AUTH_DB_NAME:-oauth_users_db}
+      - REDIS_URL=redis://auth-redis:6379/0
+      - GATEWAY_CLIENT_ID=${GATEWAY_CLIENT_ID:-api_gateway_internal}
+      - GATEWAY_CLIENT_SECRET=${GATEWAY_CLIENT_SECRET:-gateway_super_secret}
+    depends_on:
+      auth-db:
+        condition: service_healthy
+      auth-redis:
+        condition: service_healthy
+    networks:
+      - public_net
+      - intranet_gateway_net
+      - auth_data_net
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8001/health')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # =========================================================================
+  # 2. BANCO DE DADOS DE USUÁRIOS (Exclusivo do Servidor de Autorização)
+  # =========================================================================
+  auth-db:
+    image: postgres:16-alpine
+    container_name: oauth2_auth_db
+    restart: unless-stopped
+    environment:
+      - POSTGRES_USER=${AUTH_DB_USER:-auth_admin}
+      - POSTGRES_PASSWORD=${AUTH_DB_PASSWORD:-auth_secret_pwd}
+      - POSTGRES_DB=${AUTH_DB_NAME:-oauth_users_db}
+    volumes:
+      - auth_db_data:/var/lib/postgresql/data
+    networks:
+      - auth_data_net # Isolado: Apenas o auth-server enxerga este banco
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${AUTH_DB_USER:-auth_admin} -d ${AUTH_DB_NAME:-oauth_users_db}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # Cache de apoio ao Servidor de Autorização (Auth Codes temporários e Revogação)
+  auth-redis:
+    image: redis:7-alpine
+    container_name: oauth2_auth_redis
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - auth_redis_data:/data
+    networks:
+      - auth_data_net # Isolado: Apenas o auth-server enxerga o Redis
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  # =========================================================================
+  # 3. GATEWAY DE API (Ponto Único de Acesso a Recursos) - Passos 4, 5, 6, 7 e 8
+  # =========================================================================
+  api-gateway:
+    build:
+      context: ./services/api-gateway
+      dockerfile: Dockerfile
+    container_name: oauth2_api_gateway
+    restart: unless-stopped
+    ports:
+      - "8000:8000" # Porta pública que o Cliente/Usuário chama no Passo 4
+    environment:
+      - ENVIRONMENT=development
+      - SERVICE_NAME=api-gateway
+      - PORT=8000
+      - AUTH_SERVER_INTROSPECT_URL=http://auth-server:8001/api/v1/oauth/introspect
+      - RESOURCE_SERVER_BASE_URL=http://resource-server:8002
+      - GATEWAY_CLIENT_ID=${GATEWAY_CLIENT_ID:-api_gateway_internal}
+      - GATEWAY_CLIENT_SECRET=${GATEWAY_CLIENT_SECRET:-gateway_super_secret}
+      - HTTP_TIMEOUT_SECONDS=5.0
+    depends_on:
+      auth-server:
+        condition: service_healthy
+      resource-server:
+        condition: service_healthy
+    networks:
+      - public_net
+      - intranet_gateway_net
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # =========================================================================
+  # 4. SERVIDOR DE RECURSOS (APIs Protegidas) - Passos 6 e 7
+  # =========================================================================
+  resource-server:
+    build:
+      context: ./services/resource-server
+      dockerfile: Dockerfile
+    container_name: oauth2_resource_server
+    restart: unless-stopped
+    # NOTA DE SEGURANÇA: Sem 'ports' expostas para o host!
+    # O Cliente NÃO consegue pular o Gateway. Acesso apenas via intranet_gateway_net.
+    environment:
+      - ENVIRONMENT=development
+      - SERVICE_NAME=resource-server
+      - PORT=8002
+      - DATABASE_URL=postgresql+asyncpg://${RESOURCE_DB_USER:-resource_admin}:${RESOURCE_DB_PASSWORD:-resource_secret_pwd}@resource-db:5432/${RESOURCE_DB_NAME:-oauth_resources_db}
+    depends_on:
+      resource-db:
+        condition: service_healthy
+    networks:
+      - intranet_gateway_net
+      - resource_data_net
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8002/health')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # =========================================================================
+  # 5. BANCO DE DADOS DE RECURSOS (Exclusivo do Servidor de Recursos)
+  # =========================================================================
+  resource-db:
+    image: postgres:16-alpine
+    container_name: oauth2_resource_db
+    restart: unless-stopped
+    environment:
+      - POSTGRES_USER=${RESOURCE_DB_USER:-resource_admin}
+      - POSTGRES_PASSWORD=${RESOURCE_DB_PASSWORD:-resource_secret_pwd}
+      - POSTGRES_DB=${RESOURCE_DB_NAME:-oauth_resources_db}
+    volumes:
+      - resource_db_data:/var/lib/postgresql/data
+    networks:
+      - resource_data_net # Isolado: Apenas o resource-server enxerga este banco
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${RESOURCE_DB_USER:-resource_admin} -d ${RESOURCE_DB_NAME:-oauth_resources_db}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+# ===========================================================================
+# SEGMENTAÇÃO DE REDES (Zero-Trust / Isolamento de Camadas)
+# ===========================================================================
+networks:
+  public_net:
+    driver: bridge
+  intranet_gateway_net:
+    driver: bridge
+    internal: true # Bloqueia acesso externo direto
+  auth_data_net:
+    driver: bridge
+    internal: true # Isola o Banco de Usuários
+  resource_data_net:
+    driver: bridge
+    internal: true # Isola o Banco de Recursos
+
+# ===========================================================================
+# VOLUMES PERSISTENTES
+# ===========================================================================
+volumes:
+  auth_db_data:
+  auth_redis_data:
+  resource_db_data:
