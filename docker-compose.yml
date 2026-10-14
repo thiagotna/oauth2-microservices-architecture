@@ -9,7 +9,9 @@ services:
     container_name: oauth2_auth_server
     restart: unless-stopped
     ports:
-      - "8001:8001" # Exposto ao Cliente/Usuário para os Passos 1 e 3 (/authorize e /token)
+      - "8001:8001"
+    volumes:
+      - ./services/auth-server:/app # <-- Sincroniza seu código local em tempo real!
     environment:
       - ENVIRONMENT=development
       - SERVICE_NAME=auth-server
@@ -47,14 +49,13 @@ services:
     volumes:
       - auth_db_data:/var/lib/postgresql/data
     networks:
-      - auth_data_net # Isolado: Apenas o auth-server enxerga este banco
+      - auth_data_net
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${AUTH_DB_USER:-auth_admin} -d ${AUTH_DB_NAME:-oauth_users_db}"]
       interval: 5s
       timeout: 5s
       retries: 5
 
-  # Cache de apoio ao Servidor de Autorização (Auth Codes temporários e Revogação)
   auth-redis:
     image: redis:7-alpine
     container_name: oauth2_auth_redis
@@ -63,7 +64,7 @@ services:
     volumes:
       - auth_redis_data:/data
     networks:
-      - auth_data_net # Isolado: Apenas o auth-server enxerga o Redis
+      - auth_data_net
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 5s
@@ -80,7 +81,9 @@ services:
     container_name: oauth2_api_gateway
     restart: unless-stopped
     ports:
-      - "8000:8000" # Porta pública que o Cliente/Usuário chama no Passo 4
+      - "8000:8000"
+    volumes:
+      - ./services/api-gateway:/app # <-- Sincroniza seu código local em tempo real!
     environment:
       - ENVIRONMENT=development
       - SERVICE_NAME=api-gateway
@@ -113,8 +116,8 @@ services:
       dockerfile: Dockerfile
     container_name: oauth2_resource_server
     restart: unless-stopped
-    # NOTA DE SEGURANÇA: Sem 'ports' expostas para o host!
-    # O Cliente NÃO consegue pular o Gateway. Acesso apenas via intranet_gateway_net.
+    volumes:
+      - ./services/resource-server:/app # <-- Sincroniza seu código local em tempo real!
     environment:
       - ENVIRONMENT=development
       - SERVICE_NAME=resource-server
@@ -146,32 +149,26 @@ services:
     volumes:
       - resource_db_data:/var/lib/postgresql/data
     networks:
-      - resource_data_net # Isolado: Apenas o resource-server enxerga este banco
+      - resource_data_net
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${RESOURCE_DB_USER:-resource_admin} -d ${RESOURCE_DB_NAME:-oauth_resources_db}"]
       interval: 5s
       timeout: 5s
       retries: 5
 
-# ===========================================================================
-# SEGMENTAÇÃO DE REDES (Zero-Trust / Isolamento de Camadas)
-# ===========================================================================
 networks:
   public_net:
     driver: bridge
   intranet_gateway_net:
     driver: bridge
-    internal: true # Bloqueia acesso externo direto
+    internal: true
   auth_data_net:
     driver: bridge
-    internal: true # Isola o Banco de Usuários
+    internal: true
   resource_data_net:
     driver: bridge
-    internal: true # Isola o Banco de Recursos
+    internal: true
 
-# ===========================================================================
-# VOLUMES PERSISTENTES
-# ===========================================================================
 volumes:
   auth_db_data:
   auth_redis_data:
