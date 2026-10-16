@@ -3,7 +3,7 @@ from datetime import UTC, datetime
 from typing import Final
 from uuid import UUID
 
-BEARER_TOKEN_TYPE: Final[str] = "Bearer" # noqa: S105 # nosec B105
+BEARER_TOKEN_TYPE: Final[str] = "Bearer"  # noqa: S105 # nosec B105
 
 
 @dataclass(frozen=True, slots=True)
