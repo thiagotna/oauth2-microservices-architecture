@@ -38,5 +38,7 @@ class UnsupportedGrantTypeError(OAuthDomainError):
 
 
 class AccessDeniedError(OAuthDomainError):
-    def __init__(self, description: str = "The resource owner or server denied the request.") -> None:
+    def __init__(
+        self, description: str = "The resource owner or server denied the request."
+    ) -> None:
         super().__init__(error="access_denied", description=description, status_code=403)
