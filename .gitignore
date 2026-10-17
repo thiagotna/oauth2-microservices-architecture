@@ -1,0 +1,20 @@
+# Byte-compiled / cache
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Environments & Secrets
+.env
+.venv
+env/
+venv/
+
+# macOS / IDEs
+.DS_Store
+.vscode/
+.idea/

@@ -1,0 +1,44 @@
+name: OAuth 2.0 Architecture CI & Guardrails
+
+on:
+  push:
+    branches: [ "main", "master" ]
+  pull_request:
+    branches: [ "main", "master" ]
+
+jobs:
+  verify-architecture-and-security:
+    name: Quality Guardrails, Unit & E2E Tests (Steps 1-8)
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Build and Start Microservices Topology
+        run: make up
+
+      - name: Wait for All Containers to Become Healthy
+        run: |
+          for i in {1..30}; do
+            if [ "$(docker compose ps --format json | grep -c '"Health":"healthy"')" -ge 6 ]; then
+              echo "All 6 containers are healthy!"
+              docker compose ps
+              break
+            fi
+            echo "Waiting for services to be healthy... ($i/30)"
+            sleep 2
+          done
+
+      - name: Run Engineering Guardrails (Ruff + Mypy Strict + Bandit SAST)
+        run: make quality
+
+      - name: Run Unit Test Suites (Domain, Use Cases & Crypto)
+        run: make test
+
+      - name: Run End-to-End Architecture Flow (Steps 1 to 8)
+        run: make test-e2e
+
+      - name: Tear Down Environment
+        if: always()
+        run: make down
