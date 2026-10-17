@@ -34,8 +34,11 @@ lint: ## Executa análise estática de estilo e boas práticas (Ruff)
 	$(DOCKER_COMPOSE) exec resource-server ruff check src tests
 
 format: ## Formata o código automaticamente seguindo a PEP8 (Ruff)
+	$(DOCKER_COMPOSE) exec auth-server ruff check --fix src tests
 	$(DOCKER_COMPOSE) exec auth-server ruff format src tests
+	$(DOCKER_COMPOSE) exec api-gateway ruff check --fix src tests
 	$(DOCKER_COMPOSE) exec api-gateway ruff format src tests
+	$(DOCKER_COMPOSE) exec resource-server ruff check --fix src tests
 	$(DOCKER_COMPOSE) exec resource-server ruff format src tests
 
 typecheck: ## Valida tipagem estática em modo estrito (Mypy --strict, zero 'Any')
