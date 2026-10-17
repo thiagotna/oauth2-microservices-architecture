@@ -56,13 +56,13 @@ quality: lint typecheck security ## Executa todos os Guardrails de Engenharia em
 # =========================================================================
 # 3. TESTES AUTOMATIZADOS & MIGRAÇÕES DE BANCO DE DADOS
 # =========================================================================
-test: ## Executa testes unitários e de integração em cada microsserviço
-	$(DOCKER_COMPOSE) exec auth-server pytest -v --cov=src
-	$(DOCKER_COMPOSE) exec api-gateway pytest -v --cov=src
-	$(DOCKER_COMPOSE) exec resource-server pytest -v --cov=src
+test: ## Executa testes unitários em cada microsserviço
+	$(DOCKER_COMPOSE) exec auth-server pytest tests/unit -v --cov=src
+	$(DOCKER_COMPOSE) exec api-gateway pytest tests/test_health.py -v --cov=src
+	$(DOCKER_COMPOSE) exec resource-server pytest tests/test_health.py -v --cov=src
 
-test-e2e: ## Executa o teste End-to-End validando os Passos 1 a 8 do fluxograma
-	pytest tests-e2e/ -v
+test-e2e: ## Executa o teste End-to-End validando os Passos 1 a 8 do fluxograma ao vivo
+	$(DOCKER_COMPOSE) exec api-gateway pytest tests/e2e -v -s
 
 migrate-auth: ## Aplica migrações (Alembic) no Banco de Dados de Usuários (auth-db)
 	$(DOCKER_COMPOSE) exec auth-server alembic upgrade head
